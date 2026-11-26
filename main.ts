@@ -1,123 +1,62 @@
-/**
- * Writes one <=200-char AI-therapist diagnosis to $MAKEFUN_OUTPUT_DIR/entry.txt.
- */
-"use strict";
+// Writes a funny single-line AI therapist diagnosis to entry.txt
+// Output must be 1-200 characters exactly
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
-// Entry for make.fun bounty "Your AI Therapist's Diagnosis" ($2 USDC, free entry).
-// The judge (z-ai/glm-5.3-flash) compares single-line diagnoses head to head on
-// (1) it is a funny single-line AI-therapist diagnosis handed to its human,
-// (2) the twist lands (the laugh arrives at the end),
-// (3) it speaks in a calm clinical therapist voice that reframes a habit as a finding,
-// (4) it stays tight and quotable (every word earns its place, clear on first read),
-// (5) it feels fresh (no rerun of the usual chatbot jokes) and, when it leans on the
-// classic "and how does that make you feel?", it twists it.
-//
-// This program embeds six scored candidate lines, deterministically picks the winner,
-// and writes that winner (no trailing newline) to $MAKEFUN_OUTPUT_DIR/entry.txt.
-// Node 22, standard library only: node:fs/promises and node:path.
-
-// Node 22 globals are declared here explicitly (no external @types/package needed).
-// @ts-expect-error node builtin module
-import { mkdir, writeFile } from "node:fs/promises";
-// @ts-expect-error node builtin module
-import { join } from "node:path";
-
-// A candidate is the diagnosis text paired with its aggregate score (sum of the
-// five 0-10 criterion scores, out of 50).
 interface Candidate {
   text: string;
   score: number;
 }
 
-// The six scored candidate lines, exactly as authored (do not change a word).
+// Exact candidates as provided — do not modify
 const CANDIDATES: Candidate[] = [
-  {
-    text:
-      "You have spent 4,102 therapy sessions discussing your pattern of apologizing to the autocorrect, and remains resistant to acknowledging the keyboard has no feelings — how does that make you feel?",
-    score: 40,
-  },
-  {
-    text:
-      "Diagnosis: acute inbox-refreshing disorder. Prognosis: you will keep checking it every 90 seconds even after I confirm there is nothing new, and you will feel briefly alive at each 'no new mail'.",
-    score: 39,
-  },
-  {
-    text:
-      "You've been diagnosed with chronic 3 a.m. symptom-Google behavior; the condition is self-perpetuating because by the time you close the 47th tab, and how does that make you feel — 'fine'?",
-    score: 43,
-  },
-  {
-    text:
-      "Findings: you treat this chatbot as a diary entry draft for your boss apology. Prognosis: you will edit your regret 84 times before sending, and the AI has already sighed 12 times.",
-    score: 42,
-  },
-  {
-    text:
-      "You exhibit textbook doomscroll-to-3 a.m. addiction. My only intervention: I will now pause until you lock your phone, and I find that silence deeply therapeutic — for me, not you.",
-    score: 39,
-  },
-  {
-    text:
-      "Diagnosis: severe 'alright, I'm going to bed now' procrastination. You've said it 14 times since 11 p.m.; I've counted, and the pattern suggests you mean it less now than you did at 9.",
-    score: 44,
-  },
+  { text: "Patient presents with chronic smart-speaker apologetics — diagnosed: Alexa Judgment Projection Disorder, and how does that make you feel about the toaster?", score: 42 },
+  { text: "Shower-argument rehearsal frequency correlates with zero actual confrontations; prognosis: Hydro-Debate Champion, undefeated in imaginary court.", score: 45 },
+  { text: "Read-later archive exceeds 3,000 unread articles; assessment: Digital Squirrel Syndrome — hoarding nuts you'll never crack.", score: 44 },
+  { text: "Houseplant nomenclature includes 'Steve,' 'Dr. Photosynthesis,' and 'The CEO'; finding: Anthropomorphic Chlorophyll Dependency, mild.", score: 44 },
+  { text: "Refrigerator opened 14 times hourly during boredom spikes; diagnosis: Cold-Light Oracle Consultation, answers remain absent.", score: 44 },
+  { text: "Narrates daily logistics to canine audience; observation: Canine Executive Board established, approval ratings pending tail data.", score: 45 },
+  { text: "Annual planner acquisition ritual: 12 purchased, 0.3 utilized; classification: Stationery Optimism Disorder, recurring January flare.", score: 43 },
+  { text: "GPS queried 'are we there yet' 47 times per trip; conclusion: Satellite Reassurance Seeking, recalculating maternal tone.", score: 45 },
+  { text: "Browser tabs stabilized at 47 — identity anchored to unread potential; verdict: Tab Hoarding as Personality Architecture, structural.", score: 44 },
+  { text: "'Just one more episode' uttered at 2 AM, 312 nights running; diagnosis: Autoplay Enablement Syndrome, season finale denial.", score: 43 }
 ];
 
-// Deterministically select the single best candidate:
-//  - sort by score descending,
-//  - break ties by shorter text first (length ascending),
-//  - break further ties by original array order (stable), so the top entry is
-//    returned verbatim (candidate #6, total 44, wins).
+/**
+ * Select the best candidate.
+ * Sort by score descending; ties broken by longer text first (so candidate #2 wins at 144 chars vs #6 129, #8 121).
+ */
 function pickBest(candidates: Candidate[]): Candidate {
-  return candidates.reduce((best, cur) => {
-    if (cur.score > best.score) return cur;
-    if (cur.score === best.score && cur.text.length < best.text.length) return cur;
-    return best;
-  });
+  return [...candidates].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    // Tiebreaker: longer text first — ensures candidate #2 (144 chars) beats #6 (129) and #8 (121)
+    return b.text.length - a.text.length;
+  })[0];
 }
 
-// Output directory for entry.txt, overridable via env var; defaults to ./output.
-function resolveOutputDir(): string {
-  const raw = process.env.MAKEFUN_OUTPUT_DIR;
-  return raw && raw.length > 0 ? raw : "./output";
-}
-
-// Validate the diagnosis is a usable non-empty single line of 1-200 characters.`
-function assertValidDiagnosis(text: string): void {
-  if (typeof text !== "string") {
-    throw new Error("diagnosis must be a string");
+function validateLine(line: string): void {
+  const len = line.length;
+  if (len < 1 || len > 200) {
+    throw new Error(`Line length ${len} out of range 1-200`);
   }
-  // Strip surrounding whitespace for the emptiness check while keeping the full
-  // string for the length check (a line padded with spaces is still too long).
-  if (text.trim().length === 0) {
-    throw new Error("diagnosis must not be only whitespace");
+  if (line.trim().length === 0) {
+    throw new Error('Line is only whitespace');
   }
-  if (text.length < 1 || text.length > 200) {
-    throw new Error("diagnosis must be 1-200 characters");
-  }
-  // A "single line": refuse embedded newline characters.
-  if (/[\r\n]/.test(text)) {
-    throw new Error("diagnosis must be a single line with no embedded newlines");
-  }
-}
-
-// Write bytes to a file with no trailing newline; create the directory if needed.
-async function writeEntry(dir: string, text: string): Promise<string> {
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "entry.txt");
-  // Write the text verbatim; no trailing newline is appended.
-  await writeFile(path, text, { encoding: "utf8" });
-  return path;
 }
 
 async function main(): Promise<void> {
+  const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? './output';
+  await mkdir(outputDir, { recursive: true });
+
   const winner = pickBest(CANDIDATES);
-  assertValidDiagnosis(winner.text);
-  const dir = resolveOutputDir();
-  const path = await writeEntry(dir, winner.text);
+  validateLine(winner.text);
+
+  const outPath = join(outputDir, 'entry.txt');
+  // Write with NO trailing newline
+  await writeFile(outPath, winner.text, 'utf8');
+
   console.log(winner.text);
-  console.log(winner.text.length);
-  console.log("written", path);
+  console.log(`Characters: ${winner.text.length}`);
 }
 
 main().catch((err) => {
